@@ -1190,42 +1190,6 @@ class DeepDiff(ResultDict, SerializationMixin, DistanceMixin, Base):
         hashes_added = t2_hashes - t1_hashes
         hashes_removed = t1_hashes - t2_hashes
 
-        # Iterate over full_t1_hashtable and print values
-        print("Values in full_t1_hashtable:")
-        for hash_value, (indexes, item) in full_t1_hashtable.items():
-            print(f"Hash: {hash_value}, Indexes: {indexes}, Item: {item}")
-
-        # Iterate over full_t2_hashtable and print values
-        print("\nValues in full_t2_hashtable:")
-        for hash_value, (indexes, item) in full_t2_hashtable.items():
-            print(f"Hash: {hash_value}, Indexes: {indexes}, Item: {item}")
-
-        # Iterate over hashes_added and print decrypted values
-        decrypted_values_added = []
-        print("\nDecrypted values for hashes_added:")
-        for hash_value in hashes_added:
-            if hash_value in full_t2_hashtable:
-                indexes, item = full_t2_hashtable[hash_value]
-                decrypted_values_added.append(item)
-                print(f"Hash: {hash_value}, Indexes: {indexes}, Decrypted Item: {item}")
-            else:
-                # Handle the case where the hash value is not found in full_t2_hashtable
-                pass  # You may want to log a warning or handle this case according to your needs
-
-        # Iterate over hashes_removed and print decrypted values
-        decrypted_values_removed = []
-        print("\nDecrypted values for hashes_removed:")
-        for hash_value in hashes_removed:
-            if hash_value in full_t1_hashtable:
-                indexes, item = full_t1_hashtable[hash_value]
-                decrypted_values_removed.append(item)
-                print(f"Hash: {hash_value}, Indexes: {indexes}, Decrypted Item: {item}")
-            else:
-                # Handle the case where the hash value is not found in full_t1_hashtable
-                pass  # You may want to log a warning or handle this case according to your needs
-
-        # Now decrypted_values_added and decrypted_values_removed contain the items corresponding to the hash values
-
         # Deciding whether to calculate pairs or not.
         if (len(hashes_added) + len(hashes_removed)) / (len(full_t1_hashtable) + len(full_t2_hashtable) + 1) > self.cutoff_intersection_for_pairs:
             get_pairs = False
@@ -1275,40 +1239,37 @@ class DeepDiff(ResultDict, SerializationMixin, DistanceMixin, Base):
                 other = hashtable[other]
             return other
 
-        def get_other_repetition_pair(repetition_hash_value, in_t1=True):
-            """
-            Gets the other paired indexed hash item to the repetition_hash_value in the pairs dictionary
-            in_t1: are we looking for the other pair in t1 or t2?
-            """
+        def get_repetition_pair_from_other_table(repetition_hash_value, in_t1=True):
             if in_t1:
                 hashtable = t1_hashtable
-                the_other_hashes = hashes_removed
             else:
                 hashtable = t2_hashtable
-                the_other_hashes = hashes_added
             repetition_other = pairs.pop(repetition_hash_value, notpresent)
             if repetition_other is notpresent:
                 repetition_other = notpresent_indexed
             else:
-                # The pairs are symmetrical.
-                # removing the other direction of pair
-                # so it does not get used.
                 del pairs[repetition_other]
-                # the_other_hashes.remove(repetition_other)
                 repetition_other = hashtable[repetition_other]
             return repetition_other
 
+        def is_item_present_in_list(x, list_of_items):
+            if isinstance(x, dict):
+                return any(all(x_item in d.items() for x_item in x.items()) for d in list_of_items)
+            else:
+                return x in list_of_items
+
         if self.report_repetition:
+            added_items = []
             added_item_indexes = []
             for hash_value in hashes_added:
                 if self._count_diff() is StopIteration:
-                    return  # pragma: no cover. This is already covered for addition (when report_repetition=False).
-                other = get_other_repetition_pair(hash_value)
+                    return
+                other = get_repetition_pair_from_other_table(hash_value)
                 item_id = id(other.item)
-                indexes = set(t2_hashtable[hash_value].indexes[:1]) if other.item is notpresent else set(
-                    other.indexes[:1])
+                indexes = t2_hashtable[hash_value].indexes if other.item is notpresent else other.indexes
 
                 for i in indexes:
+                    added_items.append(t2_hashtable[hash_value].item)
                     added_item_indexes.append(i)
                     change_level = level.branch_deeper(
                         other.item,
@@ -1324,9 +1285,11 @@ class DeepDiff(ResultDict, SerializationMixin, DistanceMixin, Base):
             for hash_value in hashes_removed:
                 if self._count_diff() is StopIteration:
                     return  # pragma: no cover. This is already covered for addition.
-                other = get_other_repetition_pair(hash_value, in_t1=False)
+                other = get_repetition_pair_from_other_table(hash_value, in_t1=False)
                 item_id = id(other.item)
                 for i in t1_hashtable[hash_value].indexes:
+                    # is_removed = is_item_present_in_list(t1_hashtable[hash_value].item, added_items)
+                    # if i not in added_item_indexes or (i in added_item_indexes and not is_removed):
                     if i not in added_item_indexes:
                         change_level = level.branch_deeper(
                             t1_hashtable[hash_value].item,
