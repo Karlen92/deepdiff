@@ -1239,14 +1239,38 @@ class DeepDiff(ResultDict, SerializationMixin, DistanceMixin, Base):
                 other = hashtable[other]
             return other
 
+        def get_repetition_pair_from_other_table(repetition_hash_value, in_t1=True):
+            if in_t1:
+                hashtable = t1_hashtable
+            else:
+                hashtable = t2_hashtable
+            repetition_other = pairs.pop(repetition_hash_value, notpresent)
+            if repetition_other is notpresent:
+                repetition_other = notpresent_indexed
+            else:
+                del pairs[repetition_other]
+                repetition_other = hashtable[repetition_other]
+            return repetition_other
+
+        def is_item_present_in_list(x, list_of_items):
+            if isinstance(x, dict):
+                return any(all(x_item in d.items() for x_item in x.items()) for d in list_of_items)
+            else:
+                return x in list_of_items
+
         if self.report_repetition:
+            added_items = []
+            added_item_indexes = []
             for hash_value in hashes_added:
                 if self._count_diff() is StopIteration:
-                    return  # pragma: no cover. This is already covered for addition (when report_repetition=False).
-                other = get_other_pair(hash_value)
+                    return
+                other = get_repetition_pair_from_other_table(hash_value)
                 item_id = id(other.item)
                 indexes = t2_hashtable[hash_value].indexes if other.item is notpresent else other.indexes
+
                 for i in indexes:
+                    added_items.append(t2_hashtable[hash_value].item)
+                    added_item_indexes.append(i)
                     change_level = level.branch_deeper(
                         other.item,
                         t2_hashtable[hash_value].item,
@@ -1261,22 +1285,25 @@ class DeepDiff(ResultDict, SerializationMixin, DistanceMixin, Base):
             for hash_value in hashes_removed:
                 if self._count_diff() is StopIteration:
                     return  # pragma: no cover. This is already covered for addition.
-                other = get_other_pair(hash_value, in_t1=False)
+                other = get_repetition_pair_from_other_table(hash_value, in_t1=False)
                 item_id = id(other.item)
                 for i in t1_hashtable[hash_value].indexes:
-                    change_level = level.branch_deeper(
-                        t1_hashtable[hash_value].item,
-                        other.item,
-                        child_relationship_class=SubscriptableIterableRelationship,
-                        child_relationship_param=i)
-                    if other.item is notpresent:
-                        self._report_result('iterable_item_removed', change_level, local_tree=local_tree)
-                    else:
-                        # I was not able to make a test case for the following 2 lines since the cases end up
-                        # getting resolved above in the hashes_added calcs. However I am leaving these 2 lines
-                        # in case things change in future.
-                        parents_ids_added = add_to_frozen_set(parents_ids, item_id)  # pragma: no cover.
-                        self._diff(change_level, parents_ids_added, local_tree=local_tree)  # pragma: no cover.
+                    # is_removed = is_item_present_in_list(t1_hashtable[hash_value].item, added_items)
+                    # if i not in added_item_indexes or (i in added_item_indexes and not is_removed):
+                    if i not in added_item_indexes:
+                        change_level = level.branch_deeper(
+                            t1_hashtable[hash_value].item,
+                            other.item,
+                            child_relationship_class=SubscriptableIterableRelationship,
+                            child_relationship_param=i)
+                        if other.item is notpresent:
+                            self._report_result('iterable_item_removed', change_level, local_tree=local_tree)
+                        else:
+                            # I was not able to make a test case for the following 2 lines since the cases end up
+                            # getting resolved above in the hashes_added calcs. However I am leaving these 2 lines
+                            # in case things change in future.
+                            parents_ids_added = add_to_frozen_set(parents_ids, item_id)  # pragma: no cover.
+                            self._diff(change_level, parents_ids_added, local_tree=local_tree)  # pragma: no cover.
 
             items_intersect = t2_hashes.intersection(t1_hashes)
 
